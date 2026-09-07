@@ -1,0 +1,28 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  launcher:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Build launcher
+        run: |
+          mkdir -p build
+          x86_64-w64-mingw32-gcc \
+            -std=c11 -Os -Wall -Wextra -municode -mwindows \
+            -Wl,--no-insert-timestamp -s \
+            -o build/Start-BaldrForce.exe src/Start-BaldrForce.c
+      - name: Upload launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: Start-BaldrForce
+          path: build/Start-BaldrForce.exe

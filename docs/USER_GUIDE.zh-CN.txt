@@ -1,0 +1,47 @@
+BALDR FORCE EXE Win11 Fix 1.0.0
+================================
+
+用途
+----
+用于修复已验证的《BALDR FORCE EXE》中文封装版本在 Windows 10/11 上的
+DirectDraw 初始化和音效资源目录兼容问题。
+
+本补丁不包含游戏本体、汉化内容、音效、语音、图片、脚本或存档。
+
+适用游戏程序
+------------
+文件名：BaldrForce.exe
+大小：46252058 字节
+SHA-256：7A9341D40E24C4728ECC8666FE77BBE01EE78D65C65E7F6F9A486BA9630CAD76
+
+安装
+----
+1. 关闭游戏。
+2. 如果游戏目录已有 ddraw.dll 或 dgVoodoo.conf，先备份到目录之外。
+3. 将 Start-BaldrForce.exe、ddraw.dll、dgVoodoo.conf 复制到
+   BaldrForce.exe 所在目录。
+4. 双击 Start-BaldrForce.exe。以后均使用它启动。
+
+首次运行会自动建立 Sx 音效别名目录。启动器完成修复后自行退出、游戏
+继续运行是正常行为。
+
+注意
+----
+- 不要删除或改名原始 Se 目录。
+- 不要修改 Sx 内的 WAV；它们通常是原 Se 文件的 NTFS 硬链接。
+- 不需要启用 DirectPlay。
+- 启动器需要读取游戏进程并写入两个字节，安全软件可能触发启发式提示。
+- 只使用 GitHub Releases 中的文件，并对照 SHA256SUMS.txt。
+
+卸载
+----
+1. 关闭游戏。
+2. 删除 Start-BaldrForce.exe、ddraw.dll、dgVoodoo.conf。
+3. 仅当 Sx 内存在隐藏目录 .baldrforce-se-alias 时，才删除整个 Sx。
+4. 恢复安装前备份的同名文件（如果有）。
+
+许可
+----
+自有启动器、脚本和文档：MIT License。
+ddraw.dll 和 dgVoodoo.conf：第三方 dgVoodoo2 组件，详见
+THIRD_PARTY_NOTICES.txt。

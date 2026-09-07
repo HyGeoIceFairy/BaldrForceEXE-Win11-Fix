@@ -1,0 +1,8 @@
+/build/
+/dist/
+*.log
+*.dmp
+*.png
+*.zip
+.DS_Store
+Thumbs.db
