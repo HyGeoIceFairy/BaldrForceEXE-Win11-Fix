@@ -12,7 +12,7 @@ body:
     id: patch-version
     attributes:
       label: 补丁版本
-      placeholder: 1.0.0
+      placeholder: 1.1.0
     validations:
       required: true
   - type: input
@@ -35,6 +35,22 @@ body:
       label: 问题现象和错误原文
     validations:
       required: true
+  - type: dropdown
+    id: display-mode
+    attributes:
+      label: 显示模式
+      options:
+        - 窗口化
+        - 无边框全屏
+        - 传统独占全屏
+        - 尚未进入设置或不适用
+    validations:
+      required: true
+  - type: input
+    id: window-size
+    attributes:
+      label: 窗口分辨率（如适用）
+      placeholder: 960 x 720
   - type: textarea
     id: steps
     attributes:

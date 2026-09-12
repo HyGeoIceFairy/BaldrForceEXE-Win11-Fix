@@ -1,4 +1,4 @@
-BALDR FORCE EXE Win11 Fix 1.0.0
+BALDR FORCE EXE Win11 Fix 1.1.0
 ================================
 
 用途
@@ -20,10 +20,43 @@ SHA-256：7A9341D40E24C4728ECC8666FE77BBE01EE78D65C65E7F6F9A486BA9630CAD76
 2. 如果游戏目录已有 ddraw.dll 或 dgVoodoo.conf，先备份到目录之外。
 3. 将 Start-BaldrForce.exe、ddraw.dll、dgVoodoo.conf 复制到
    BaldrForce.exe 所在目录。
-4. 双击 Start-BaldrForce.exe。以后均使用它启动。
+4. 建议同时复制 USER_GUIDE.zh-CN.txt，方便从启动面板打开本指南。
+5. 双击 Start-BaldrForce.exe。以后均使用它启动。
 
-首次运行会自动建立 Sx 音效别名目录。启动器完成修复后自行退出、游戏
-继续运行是正常行为。
+首次运行会显示中文设置面板，并自动建立 Sx 音效别名目录。启动器完成
+修复和显示模式设置后自行退出、游戏继续运行是正常行为。
+
+从 1.0.0 升级
+--------------
+1. 关闭游戏，用新版 Start-BaldrForce.exe 覆盖旧启动器。
+2. ddraw.dll 仍为 dgVoodoo2 2.87.4，无需重复覆盖。
+3. 建议保留当前 dgVoodoo.conf。新版会读取可识别的旧显示设置，并把旧版
+   全屏意图迁移为推荐的无边框全屏；只有点击“保存并启动”后才会修改。
+4. 如果手动定制过 dgVoodoo.conf，请先在游戏目录之外另存一份。
+
+显示模式
+--------
+- 窗口化：可选 640x480、800x600、960x720、1024x768、1280x960，也可
+  直接输入“宽 x 高”。尺寸只改变显示大小，不会提高原始素材精度。
+- 无边框全屏（推荐）：覆盖当前显示器，不进行独占模式切换，通常更方便
+  切出和切回。
+- 传统独占全屏：保留旧版全屏行为；兼容性可能随显卡、DPI 和显示器变化。
+
+其他设置包括：保持宽高比、平滑或清晰像素缩放、限制鼠标、垂直同步、
+窗口居中，以及记住设置后直接启动。
+
+启用直接启动后，按住 Shift 再双击启动器可重新进入设置。也可使用：
+  Start-BaldrForce.exe --settings   打开设置
+  Start-BaldrForce.exe --launch     按已保存设置启动
+  Start-BaldrForce.exe --diagnose   显示诊断摘要，不启动游戏
+
+文件与恢复
+----------
+- Start-BaldrForce.ini：保存启动器选择。移到其他目录后可重新生成。
+- dgVoodoo.conf.baldrforce-backup：启动器第一次修改兼容层配置前的备份；
+  后续保存不会覆盖它。
+- Start-BaldrForce.log：只记录启动阶段和 Windows 错误码，可在排障后删除。
+- “恢复推荐设置”只更新面板内容，点击“保存并启动”后才写入。
 
 注意
 ----
@@ -32,13 +65,17 @@ SHA-256：7A9341D40E24C4728ECC8666FE77BBE01EE78D65C65E7F6F9A486BA9630CAD76
 - 不需要启用 DirectPlay。
 - 启动器需要读取游戏进程并写入两个字节，安全软件可能触发启发式提示。
 - 只使用 GitHub Releases 中的文件，并对照 SHA256SUMS.txt。
+- 不要在游戏运行时修改设置。启动器不会终止同目录中已有的游戏进程。
+- 诊断摘要不会自动上传，也不读取存档。
 
 卸载
 ----
 1. 关闭游戏。
 2. 删除 Start-BaldrForce.exe、ddraw.dll、dgVoodoo.conf。
-3. 仅当 Sx 内存在隐藏目录 .baldrforce-se-alias 时，才删除整个 Sx。
-4. 恢复安装前备份的同名文件（如果有）。
+3. 可删除 Start-BaldrForce.ini、Start-BaldrForce.log 和
+   dgVoodoo.conf.baldrforce-backup；先确认备份中没有仍需保留的自定义设置。
+4. 仅当 Sx 内存在隐藏目录 .baldrforce-se-alias 时，才删除整个 Sx。
+5. 恢复安装前备份的同名文件（如果有）。
 
 许可
 ----

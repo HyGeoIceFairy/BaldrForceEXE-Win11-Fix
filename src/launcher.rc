@@ -1,0 +1,74 @@
+#include <windows.h>
+#include "resource.h"
+
+#define RT_MANIFEST 24
+#define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "launcher.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,1,0,0
+ PRODUCTVERSION 1,1,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "CompanyName", "BALDR FORCE EXE Win11 Fix contributors"
+            VALUE "FileDescription", "BALDR FORCE EXE 中文版兼容启动器"
+            VALUE "FileVersion", "1.1.0"
+            VALUE "InternalName", "Start-BaldrForce"
+            VALUE "LegalCopyright", "Copyright (c) 2026 BALDR FORCE EXE Win11 Fix contributors"
+            VALUE "OriginalFilename", "Start-BaldrForce.exe"
+            VALUE "ProductName", "BALDR FORCE EXE Win11 Fix"
+            VALUE "ProductVersion", "1.1.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0804, 1200
+    END
+END
+
+IDD_LAUNCHER DIALOGEX 0, 0, 396, 310
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "BALDR FORCE EXE 中文版启动器 1.1.0"
+FONT 9, "Microsoft YaHei UI", 400, 0, 0x86
+BEGIN
+    LTEXT           "显示模式(&M)：", -1, 14, 15, 76, 12
+    COMBOBOX        IDC_DISPLAY_MODE, 92, 12, 288, 74, CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "窗口分辨率(&R)：", -1, 14, 42, 76, 12
+    COMBOBOX        IDC_RESOLUTION, 92, 39, 156, 85, CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "可直接输入，例如 1152 x 864", -1, 255, 42, 126, 12
+
+    GROUPBOX        "画面", -1, 14, 67, 177, 76
+    CONTROL         "保持原始宽高比(&A)", IDC_KEEP_ASPECT, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 25, 84, 150, 12
+    CONTROL         "平滑缩放（关闭为清晰像素）(&S)", IDC_SMOOTH_SCALING, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 25, 104, 155, 12
+    CONTROL         "启用垂直同步(&V)", IDC_VERTICAL_SYNC, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 25, 124, 150, 12
+
+    GROUPBOX        "窗口与启动", -1, 203, 67, 177, 76
+    CONTROL         "限制鼠标在游戏画面内(&C)", IDC_CAPTURE_MOUSE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 214, 84, 155, 12
+    CONTROL         "窗口在当前显示器居中(&E)", IDC_CENTER_WINDOW, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 214, 104, 155, 12
+    CONTROL         "以后直接启动（按住 Shift 打开设置）(&Q)", IDC_QUICK_START, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 214, 124, 160, 12
+
+    LTEXT           "", IDC_STATUS, 14, 153, 366, 43, SS_LEFT
+
+    PUSHBUTTON      "恢复推荐设置(&D)", IDC_RESET, 14, 203, 88, 22
+    PUSHBUTTON      "游戏目录(&F)", IDC_OPEN_FOLDER, 108, 203, 65, 22
+    PUSHBUTTON      "使用指南(&G)", IDC_OPEN_GUIDE, 179, 203, 65, 22
+    PUSHBUTTON      "发布页(&U)", IDC_OPEN_RELEASES, 250, 203, 58, 22
+    PUSHBUTTON      "复制诊断(&I)", IDC_COPY_DIAGNOSTICS, 314, 203, 66, 22
+
+    LTEXT           "设置在下次启动时生效；本启动器不会修改游戏程序或存档。", -1, 14, 239, 366, 12
+    DEFPUSHBUTTON   "保存并启动(&L)", IDOK, 222, 272, 92, 25
+    PUSHBUTTON      "取消", IDCANCEL, 321, 272, 59, 25
+END
