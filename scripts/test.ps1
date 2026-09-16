@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $BuildDirectory = Join-Path $RepositoryRoot 'build'
 $TestExecutablePath = Join-Path $BuildDirectory 'config-tests.exe'
+$GamePatchTestExecutablePath = Join-Path $BuildDirectory 'game-patch-tests.exe'
 
 New-Item -ItemType Directory -Force -Path $BuildDirectory | Out-Null
 
@@ -33,4 +34,24 @@ if ($LASTEXITCODE -ne 0) {
 & $TestExecutablePath
 if ($LASTEXITCODE -ne 0) {
     throw "Configuration tests failed with exit code $LASTEXITCODE."
+}
+
+& $CompilerPath `
+    '-std=c11' `
+    '-Wall' `
+    '-Wextra' `
+    '-Wpedantic' `
+    '-Werror' `
+    '-Wl,--no-insert-timestamp' `
+    '-o' $GamePatchTestExecutablePath `
+    (Join-Path $RepositoryRoot 'tests\game_patch_tests.c') `
+    (Join-Path $RepositoryRoot 'src\game_patch.c')
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Game patch test build failed with exit code $LASTEXITCODE."
+}
+
+& $GamePatchTestExecutablePath
+if ($LASTEXITCODE -ne 0) {
+    throw "Game patch tests failed with exit code $LASTEXITCODE."
 }

@@ -29,6 +29,7 @@ static const char valid_config[] =
     "UnknownGeneral = keep-me\r\n"
     "[GeneralExt]\r\n"
     "Resampling = bilinear\r\n"
+    "FreeMouse = false\r\n"
     "WindowedAttributes = \r\n"
     "FullscreenAttributes = \r\n"
     "[Glide]\r\n"
@@ -115,6 +116,10 @@ static void test_transform_preserves_unknown_content(void)
               "stretch mode changes without touching another section");
         CHECK(strstr(output, "Resampling = pointsampled") != NULL,
               "point sampling is written");
+        CHECK(strstr(output, "FreeMouse = true") != NULL,
+              "windowed mode exposes physical mouse coordinates for client conversion");
+        CHECK(strstr(output, "AppControlledScreenMode = false") != NULL,
+              "windowed mode lets dgVoodoo host the native DirectDraw lifecycle");
         CHECK(strstr(output, "ForceVerticalSync = true") != NULL,
               "DirectX vertical sync is written");
         CHECK(strstr(output, "UnknownGeneral = keep-me") != NULL,
@@ -124,6 +129,67 @@ static void test_transform_preserves_unknown_content(void)
         CHECK(strstr(output, "[Tail]\r\nUserValue = untouched") != NULL,
               "unknown section survives");
         CHECK(output_size > 0, "output size is populated");
+        free(output);
+    }
+}
+
+static void test_transform_couples_mouse_mode_and_client_conversion(void)
+{
+    LauncherSettings settings;
+    char *output = NULL;
+    size_t output_size = 0;
+    wchar_t error_message[256] = L"";
+
+    launcher_settings_recommended(&settings);
+    settings.display_mode = DISPLAY_MODE_WINDOWED;
+    settings.capture_mouse = TRUE;
+    CHECK(dgvoodoo_config_transform(valid_config, sizeof(valid_config) - 1,
+                                    &settings, &output, &output_size,
+                                    error_message, 256),
+          "captured windowed mouse configuration transforms");
+    if (output != NULL) {
+        CHECK(strstr(output, "CaptureMouse = true") != NULL &&
+              strstr(output, "FreeMouse = true") != NULL,
+              "captured windowed mouse exposes physical coordinates");
+        free(output);
+        output = NULL;
+    }
+
+    settings.capture_mouse = FALSE;
+    CHECK(dgvoodoo_config_transform(valid_config, sizeof(valid_config) - 1,
+                                    &settings, &output, &output_size,
+                                    error_message, 256),
+          "free windowed mouse configuration transforms");
+    if (output != NULL) {
+        CHECK(strstr(output, "CaptureMouse = false") != NULL &&
+              strstr(output, "FreeMouse = true") != NULL,
+              "uncaptured windowed mouse exposes physical coordinates");
+        free(output);
+        output = NULL;
+    }
+
+    settings.display_mode = DISPLAY_MODE_BORDERLESS;
+    CHECK(dgvoodoo_config_transform(valid_config, sizeof(valid_config) - 1,
+                                    &settings, &output, &output_size,
+                                    error_message, 256),
+          "borderless mouse configuration transforms");
+    if (output != NULL) {
+        CHECK(strstr(output, "FreeMouse = false") != NULL &&
+              strstr(output, "AppControlledScreenMode = false") != NULL,
+              "borderless mode retains dgVoodoo display and mouse mapping");
+        free(output);
+        output = NULL;
+    }
+
+    settings.display_mode = DISPLAY_MODE_EXCLUSIVE;
+    CHECK(dgvoodoo_config_transform(valid_config, sizeof(valid_config) - 1,
+                                    &settings, &output, &output_size,
+                                    error_message, 256),
+          "exclusive mouse configuration transforms");
+    if (output != NULL) {
+        CHECK(strstr(output, "FreeMouse = false") != NULL &&
+              strstr(output, "AppControlledScreenMode = true") != NULL,
+              "exclusive mode retains native display and dgVoodoo mouse mapping");
         free(output);
     }
 }
@@ -427,6 +493,7 @@ static void test_requested_action_parser(void)
 int main(void)
 {
     test_transform_preserves_unknown_content();
+    test_transform_couples_mouse_mode_and_client_conversion();
     test_transform_rejects_duplicate();
     test_transform_accepts_utf8_bom();
     test_transform_preserves_lf_line_endings();

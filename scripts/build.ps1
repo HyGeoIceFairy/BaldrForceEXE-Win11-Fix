@@ -50,6 +50,7 @@ if (!$KeepDebugSymbols) {
     @LinkerOptions `
     '-o' $OutputPath `
     (Join-Path $RepositoryRoot 'src\Start-BaldrForce.c') `
+    (Join-Path $RepositoryRoot 'src\game_patch.c') `
     (Join-Path $RepositoryRoot 'src\launcher_config.c') `
     (Join-Path $RepositoryRoot 'src\launcher_ui.c') `
     $ResourceObjectPath `

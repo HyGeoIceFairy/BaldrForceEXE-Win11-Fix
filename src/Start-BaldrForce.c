@@ -14,8 +14,10 @@
 #include <wchar.h>
 #include <wctype.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "game_patch.h"
 #include "launcher_config.h"
 #include "launcher_ui.h"
 
@@ -618,6 +620,215 @@ typedef struct LaunchExecutionContext {
     BOOL launched;
 } LaunchExecutionContext;
 
+static BOOL suspend_secondary_threads(DWORD process_id, DWORD primary_thread_id,
+                                      HANDLE **threads, size_t *thread_count)
+{
+    HANDLE snapshot;
+    HANDLE *suspended = NULL;
+    size_t count = 0;
+    size_t capacity = 0;
+    THREADENTRY32 entry;
+    BOOL has_entry;
+    DWORD error_code = ERROR_SUCCESS;
+
+    if (threads == NULL || thread_count == NULL) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    *threads = NULL;
+    *thread_count = 0;
+    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return FALSE;
+    }
+    ZeroMemory(&entry, sizeof(entry));
+    entry.dwSize = sizeof(entry);
+    has_entry = Thread32First(snapshot, &entry);
+    if (!has_entry && GetLastError() != ERROR_NO_MORE_FILES) {
+        error_code = GetLastError();
+        goto fail;
+    }
+    while (has_entry) {
+        if (entry.th32OwnerProcessID == process_id &&
+            entry.th32ThreadID != primary_thread_id) {
+            HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME |
+                                           THREAD_QUERY_LIMITED_INFORMATION,
+                                       FALSE,
+                                       entry.th32ThreadID);
+            HANDLE *expanded;
+            DWORD owner_process_id;
+
+            if (thread == NULL) {
+                error_code = GetLastError();
+                if (error_code == ERROR_INVALID_PARAMETER) {
+                    has_entry = Thread32Next(snapshot, &entry);
+                    continue;
+                }
+                goto fail;
+            }
+            owner_process_id = GetProcessIdOfThread(thread);
+            if (owner_process_id == 0) {
+                error_code = GetLastError();
+                CloseHandle(thread);
+                if (error_code == ERROR_INVALID_PARAMETER) {
+                    has_entry = Thread32Next(snapshot, &entry);
+                    continue;
+                }
+                goto fail;
+            }
+            if (owner_process_id != process_id) {
+                CloseHandle(thread);
+                has_entry = Thread32Next(snapshot, &entry);
+                continue;
+            }
+            if (SuspendThread(thread) == (DWORD)-1) {
+                error_code = GetLastError();
+                CloseHandle(thread);
+                goto fail;
+            }
+            if (count == capacity) {
+                size_t next_capacity = capacity == 0 ? 8U : capacity * 2U;
+                expanded = (HANDLE *)realloc(suspended,
+                                             next_capacity * sizeof(*expanded));
+                if (expanded == NULL) {
+                    error_code = ERROR_OUTOFMEMORY;
+                    ResumeThread(thread);
+                    CloseHandle(thread);
+                    goto fail;
+                }
+                suspended = expanded;
+                capacity = next_capacity;
+            }
+            suspended[count++] = thread;
+        }
+        has_entry = Thread32Next(snapshot, &entry);
+        if (!has_entry && GetLastError() != ERROR_NO_MORE_FILES) {
+            error_code = GetLastError();
+            goto fail;
+        }
+    }
+    CloseHandle(snapshot);
+    *threads = suspended;
+    *thread_count = count;
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+
+fail:
+    CloseHandle(snapshot);
+    while (count != 0) {
+        --count;
+        ResumeThread(suspended[count]);
+        CloseHandle(suspended[count]);
+    }
+    free(suspended);
+    SetLastError(error_code);
+    return FALSE;
+}
+
+static void close_secondary_threads(HANDLE *threads, size_t thread_count)
+{
+    while (thread_count != 0) {
+        --thread_count;
+        CloseHandle(threads[thread_count]);
+    }
+    free(threads);
+}
+
+static BOOL resume_secondary_threads(HANDLE *threads, size_t thread_count)
+{
+    DWORD error_code = ERROR_SUCCESS;
+
+    while (thread_count != 0) {
+        --thread_count;
+        if (ResumeThread(threads[thread_count]) == (DWORD)-1 &&
+            error_code == ERROR_SUCCESS) {
+            error_code = GetLastError();
+        }
+        CloseHandle(threads[thread_count]);
+    }
+    free(threads);
+    if (error_code != ERROR_SUCCESS) {
+        SetLastError(error_code);
+        return FALSE;
+    }
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
+
+static BOOL terminate_process_and_wait(HANDLE process, BOOL *termination_started)
+{
+    DWORD wait_result;
+    DWORD error_code;
+    DWORD exit_code;
+
+    if (process == NULL || process == INVALID_HANDLE_VALUE ||
+        termination_started == NULL) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    *termination_started = FALSE;
+    wait_result = WaitForSingleObject(process, 0);
+    if (wait_result == WAIT_OBJECT_0) {
+        *termination_started = TRUE;
+        SetLastError(ERROR_SUCCESS);
+        return TRUE;
+    }
+    if (wait_result == WAIT_FAILED) {
+        return FALSE;
+    }
+    if (!TerminateProcess(process, 1)) {
+        error_code = GetLastError();
+        if (!GetExitCodeProcess(process, &exit_code) || exit_code == STILL_ACTIVE) {
+            SetLastError(error_code);
+            return FALSE;
+        }
+    }
+    *termination_started = TRUE;
+    wait_result = WaitForSingleObject(process, 5000);
+    if (wait_result == WAIT_OBJECT_0) {
+        SetLastError(ERROR_SUCCESS);
+        return TRUE;
+    }
+    if (wait_result == WAIT_TIMEOUT) {
+        SetLastError(ERROR_TIMEOUT);
+    }
+    return FALSE;
+}
+
+static void terminate_failed_launch(HANDLE process, HANDLE primary_thread,
+                                    BOOL *primary_thread_suspended,
+                                    HANDLE **secondary_threads,
+                                    size_t *secondary_thread_count)
+{
+    BOOL termination_started = FALSE;
+    DWORD termination_error = ERROR_SUCCESS;
+
+    if (!terminate_process_and_wait(process, &termination_started)) {
+        termination_error = GetLastError();
+        write_log(L"terminate-failed-launch", termination_error);
+    }
+    if (*secondary_threads != NULL) {
+        if (termination_started) {
+            close_secondary_threads(*secondary_threads,
+                                    *secondary_thread_count);
+        } else if (!resume_secondary_threads(*secondary_threads,
+                                             *secondary_thread_count)) {
+            write_log(L"resume-secondary-after-terminate-failure",
+                      GetLastError());
+        }
+        *secondary_threads = NULL;
+        *secondary_thread_count = 0;
+    }
+    if (!termination_started && *primary_thread_suspended) {
+        if (ResumeThread(primary_thread) == (DWORD)-1) {
+            write_log(L"resume-primary-after-terminate-failure",
+                      GetLastError());
+        } else {
+            *primary_thread_suspended = FALSE;
+        }
+    }
+}
+
 static BOOL launch_game_with_settings(const LauncherSettings *settings, void *user_data)
 {
     static const BYTE resource_alias[] = { 'S', 'x' };
@@ -628,6 +839,9 @@ static BOOL launch_game_with_settings(const LauncherSettings *settings, void *us
     wchar_t preflight_status[512] = L"";
     wchar_t settings_error[512] = L"";
     HANDLE launch_mutex = NULL;
+    HANDLE *secondary_threads = NULL;
+    size_t secondary_thread_count = 0;
+    BOOL primary_thread_suspended = FALSE;
     GameInstanceStatus instance_status;
     SIZE_T written = 0;
     DWORD error_code;
@@ -700,17 +914,23 @@ static BOOL launch_game_with_settings(const LauncherSettings *settings, void *us
         execution->result = 7;
         goto cleanup;
     }
+    primary_thread_suspended = TRUE;
 
     if (ResumeThread(process_info.hThread) == (DWORD)-1) {
         error_code = GetLastError();
-        TerminateProcess(process_info.hProcess, 1);
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
         show_launch_error(L"resume-unpacker", L"无法恢复游戏启动线程。", error_code);
         execution->result = 8;
         goto cleanup_process;
     }
+    primary_thread_suspended = FALSE;
     if (!wait_for_unpacked_image(process_info.hProcess)) {
         error_code = GetLastError();
-        TerminateProcess(process_info.hProcess, 1);
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
         show_launch_error(L"wait-unpacker",
                           L"等待汉化封装器解包超时，未应用资源路径修复。", error_code);
         execution->result = 9;
@@ -718,9 +938,26 @@ static BOOL launch_game_with_settings(const LauncherSettings *settings, void *us
     }
     if (SuspendThread(process_info.hThread) == (DWORD)-1) {
         error_code = GetLastError();
-        TerminateProcess(process_info.hProcess, 1);
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
         show_launch_error(L"suspend-patch",
                           L"无法暂停游戏以应用 Se 到 Sx 的资源路径修复。", error_code);
+        execution->result = 10;
+        goto cleanup_process;
+    }
+    primary_thread_suspended = TRUE;
+    if (!suspend_secondary_threads(process_info.dwProcessId,
+                                   process_info.dwThreadId,
+                                   &secondary_threads,
+                                   &secondary_thread_count)) {
+        error_code = GetLastError();
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
+        show_launch_error(L"suspend-secondary-threads",
+                          L"无法暂停游戏当前的辅助线程以安全应用进程补丁。",
+                          error_code);
         execution->result = 10;
         goto cleanup_process;
     }
@@ -729,7 +966,9 @@ static BOOL launch_game_with_settings(const LauncherSettings *settings, void *us
         if (error_code == ERROR_SUCCESS) {
             error_code = ERROR_INVALID_DATA;
         }
-        TerminateProcess(process_info.hProcess, 1);
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
         show_launch_error(L"verify-patch-target",
                           L"游戏内补丁目标与支持版本不一致，未写入进程。", error_code);
         execution->result = 11;
@@ -741,26 +980,73 @@ static BOOL launch_game_with_settings(const LauncherSettings *settings, void *us
         !FlushInstructionCache(process_info.hProcess, RESOURCE_NAME_ADDRESS,
                                sizeof(resource_alias))) {
         error_code = GetLastError();
-        TerminateProcess(process_info.hProcess, 1);
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
         show_launch_error(L"write-resource-alias",
                           L"无法应用 Se 到 Sx 的资源路径修复。", error_code);
         execution->result = 11;
         goto cleanup_process;
     }
-    if (ResumeThread(process_info.hThread) == (DWORD)-1) {
+    if (settings->display_mode != DISPLAY_MODE_EXCLUSIVE &&
+        !game_desktop_display_patch_apply(process_info.hProcess)) {
         error_code = GetLastError();
-        TerminateProcess(process_info.hProcess, 1);
-        show_launch_error(L"resume-patched-game",
-                          L"应用 Se 资源检查修复后无法恢复游戏。", error_code);
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
+        show_launch_error(L"patch-desktop-display",
+                          L"无法应用桌面显示模式的 DirectDraw 生命周期修复。",
+                          error_code);
         execution->result = 12;
         goto cleanup_process;
     }
+    if (settings->display_mode == DISPLAY_MODE_WINDOWED &&
+        !game_windowed_mouse_patch_apply(process_info.hProcess,
+                                         settings->width, settings->height,
+                                         settings->keep_aspect_ratio)) {
+        error_code = GetLastError();
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
+        show_launch_error(L"patch-windowed-mouse",
+                          L"无法应用窗口模式鼠标坐标修复。", error_code);
+        execution->result = 13;
+        goto cleanup_process;
+    }
+    if (!resume_secondary_threads(secondary_threads, secondary_thread_count)) {
+        error_code = GetLastError();
+        secondary_threads = NULL;
+        secondary_thread_count = 0;
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
+        show_launch_error(L"resume-secondary-threads",
+                          L"应用进程补丁后无法恢复游戏的全部线程。",
+                          error_code);
+        execution->result = 14;
+        goto cleanup_process;
+    }
+    secondary_threads = NULL;
+    secondary_thread_count = 0;
+    if (ResumeThread(process_info.hThread) == (DWORD)-1) {
+        error_code = GetLastError();
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
+        show_launch_error(L"resume-patched-game",
+                          L"应用 Se 资源检查修复后无法恢复游戏。", error_code);
+        execution->result = 14;
+        goto cleanup_process;
+    }
+    primary_thread_suspended = FALSE;
     if (!set_game_display(process_info.hProcess, process_info.dwProcessId, settings)) {
         error_code = GetLastError();
-        TerminateProcess(process_info.hProcess, 1);
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
         show_launch_error(L"set-display-mode",
                           L"游戏已启动，但无法应用所选显示模式。", error_code);
-        execution->result = 13;
+        execution->result = 15;
         goto cleanup_process;
     }
 
@@ -769,6 +1055,11 @@ static BOOL launch_game_with_settings(const LauncherSettings *settings, void *us
     execution->launched = TRUE;
 
 cleanup_process:
+    if (secondary_threads != NULL) {
+        if (!resume_secondary_threads(secondary_threads, secondary_thread_count)) {
+            write_log(L"resume-secondary-cleanup", GetLastError());
+        }
+    }
     CloseHandle(process_info.hThread);
     CloseHandle(process_info.hProcess);
 cleanup:
