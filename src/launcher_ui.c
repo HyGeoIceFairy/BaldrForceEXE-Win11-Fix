@@ -274,7 +274,7 @@ void launcher_build_diagnostics(const LauncherSettings *settings,
     has_config = GetFileAttributesW(DGVOODOO_CONFIG_FILE) != INVALID_FILE_ATTRIBUTES;
     has_sound = GetFileAttributesW(L"Se\\Abort.wav") != INVALID_FILE_ATTRIBUTES;
     _snwprintf(buffer, buffer_count - 1,
-               L"BALDR FORCE EXE Win11 Fix 1.1.0\r\n"
+               L"BALDR FORCE EXE Win11 Fix 1.1.1\r\n"
                L"Windows: %lu.%lu build %lu, %u-bit process\r\n"
                L"Game: %ls, size=%llu, expected=46252058\r\n"
                L"ddraw.dll: %ls; dgVoodoo.conf: %ls; Se\\Abort.wav: %ls\r\n"

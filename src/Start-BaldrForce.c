@@ -1000,6 +1000,18 @@ static BOOL launch_game_with_settings(const LauncherSettings *settings, void *us
         execution->result = 12;
         goto cleanup_process;
     }
+    if (settings->display_mode != DISPLAY_MODE_EXCLUSIVE &&
+        !game_inactive_input_patch_apply(process_info.hProcess)) {
+        error_code = GetLastError();
+        terminate_failed_launch(process_info.hProcess, process_info.hThread,
+                                &primary_thread_suspended, &secondary_threads,
+                                &secondary_thread_count);
+        show_launch_error(L"patch-inactive-input",
+                          L"无法应用失焦键盘和鼠标输入过滤修复。",
+                          error_code);
+        execution->result = 13;
+        goto cleanup_process;
+    }
     if (settings->display_mode == DISPLAY_MODE_WINDOWED &&
         !game_windowed_mouse_patch_apply(process_info.hProcess,
                                          settings->width, settings->height,

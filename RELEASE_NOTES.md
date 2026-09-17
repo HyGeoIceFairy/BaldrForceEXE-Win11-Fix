@@ -1,4 +1,4 @@
-# BALDR FORCE EXE Win11 Fix v1.1.0
+# BALDR FORCE EXE Win11 Fix v1.1.1
 
 面向特定《BALDR FORCE EXE》中文封装版本的非官方 Windows 10/11 兼容补丁。
 
@@ -6,7 +6,14 @@
 > 150% DPI 的目标环境通过实测；传统独占全屏、多显示器、其他 DPI／驱动组合以及完整
 > 战斗流程仍需要更多用户环境验证。
 
-## 主要更新
+## 1.1.1 修复
+
+- 修复窗口化和无边框模式失去焦点后仍响应键盘、鼠标移动与鼠标按钮的问题。
+- 失焦瞬间清空已有键鼠状态，避免失焦前按住的操作继续生效。
+- 重新聚焦后必须重新按键或点击才会生效，不会把失焦期间的操作带回游戏。
+- 已在真实游戏中完成切换到其他窗口、注入键鼠输入及重新聚焦的实机验收。
+
+## 1.1 系列功能
 
 - 新增原生中文启动面板，可选窗口化、无边框全屏和传统独占全屏。
 - 窗口模式提供常用分辨率和自定义客户区尺寸；无边框全屏是现代 Windows 上的推荐模式。
@@ -20,11 +27,11 @@
 
 ## 安装
 
-1. 下载 `BaldrForceEXE-Win11-Fix-v1.1.0.zip`。
+1. 下载 `BaldrForceEXE-Win11-Fix-v1.1.1.zip`。
 2. 新安装：把 `Start-BaldrForce.exe`、`ddraw.dll`、`dgVoodoo.conf` 和 `USER_GUIDE.zh-CN.txt` 放到 `BaldrForce.exe` 所在目录。
 3. 双击 `Start-BaldrForce.exe` 启动游戏。
 
-从 1.0.0 升级时只需覆盖 `Start-BaldrForce.exe`，并建议保留当前 `dgVoodoo.conf`。如果曾手工修改兼容层配置，请先另行备份。
+从 1.0.0 或 1.1.0 升级时只需覆盖 `Start-BaldrForce.exe`，并建议保留当前 `dgVoodoo.conf`。如果曾手工修改兼容层配置，请先另行备份。
 
 适用游戏程序 SHA-256：
 

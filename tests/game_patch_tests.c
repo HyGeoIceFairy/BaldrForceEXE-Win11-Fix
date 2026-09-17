@@ -9,10 +9,12 @@
 #define TEST_IMAGE_BASE 0x00400000U
 #define TEST_IMAGE_SIZE 0x00104000U
 #define TEST_HELPER_ADDRESS 0x10000000U
+#define TEST_INPUT_HELPER_ADDRESS 0x10001000U
 
 static int failures;
 static BYTE test_image[TEST_IMAGE_SIZE];
 static BYTE test_helper[GAME_WINDOWED_MOUSE_HELPER_SIZE];
+static BYTE test_input_helper[GAME_INACTIVE_INPUT_HELPER_SIZE];
 
 #define CHECK(condition, message) \
     do { \
@@ -32,6 +34,7 @@ static void initialize_supported_image(void)
 {
     memset(test_image, 0xCC, sizeof(test_image));
     memset(test_helper, 0xCC, sizeof(test_helper));
+    memset(test_input_helper, 0xCC, sizeof(test_input_helper));
     test_image[image_offset(0x0040C765U)] = 0x75;
     test_image[image_offset(0x0040C766U)] = 0x12;
     memcpy(test_image + image_offset(0x0040C773U),
@@ -46,10 +49,14 @@ static void initialize_supported_image(void)
            "\xFF\x15\x14\xD2\x4B\x00", 6);
     memcpy(test_image + image_offset(0x004A8EADU),
            "\x74\x19", 2);
+    memcpy(test_image + image_offset(0x004A8EC3U),
+           "\xE8\x38\xF0\xFF\xFF", 5);
     memcpy(test_image + image_offset(0x004A8F67U),
            "\x0F\x84\xB8\x00\x00\x00", 6);
     memcpy(test_image + image_offset(0x00401435U),
            "\x8B\x4C\x24\x14", 4);
+    memcpy(test_image + image_offset(0x004A85B0U),
+           "\xE8\x9B\x41\xF6\xFF", 5);
 }
 
 static int32_t read_relative_call(uintptr_t address)
@@ -63,6 +70,46 @@ static int32_t read_relative_call(uintptr_t address)
 static uintptr_t call_target(uintptr_t address)
 {
     return address + 5U + (intptr_t)read_relative_call(address);
+}
+
+static void test_inactive_input_filter_is_patched(void)
+{
+    int32_t function_slot;
+
+    initialize_supported_image();
+
+    CHECK(game_inactive_input_patch_transform(
+              test_image, sizeof(test_image), TEST_IMAGE_BASE,
+              TEST_INPUT_HELPER_ADDRESS, 0x12345678U,
+              test_input_helper, sizeof(test_input_helper)),
+          "supported input update entry transforms");
+    CHECK(test_image[image_offset(0x004A85B0U)] == 0xE9,
+          "input update entry jumps to the foreground guard");
+    CHECK(call_target(0x004A85B0U) == TEST_INPUT_HELPER_ADDRESS,
+          "input update entry targets the injected guard");
+    CHECK(test_input_helper[0] == 0xFF &&
+              test_input_helper[1] == 0x15 &&
+              test_input_helper[6] == 0x3B &&
+              test_input_helper[7] == 0x05 &&
+              test_input_helper[12] == 0x74 &&
+              test_input_helper[13] == 0x20,
+          "input guard compares the foreground window with the game window");
+    CHECK(test_input_helper[14] == 0x31 &&
+              test_input_helper[16] == 0xA3 &&
+              test_input_helper[32] == 0xB9 &&
+              test_input_helper[37] == 0xBF &&
+              test_input_helper[42] == 0xF3 &&
+              test_input_helper[43] == 0xAB &&
+              test_input_helper[45] == 0xC3,
+          "inactive branch clears mouse and keyboard state before returning");
+    CHECK(test_input_helper[46] == 0xE8 &&
+              test_input_helper[51] == 0xE9,
+          "foreground branch executes and rejoins the original input update");
+    memcpy(&function_slot,
+           test_input_helper + GAME_INACTIVE_INPUT_FUNCTION_SLOT_OFFSET,
+           sizeof(function_slot));
+    CHECK((uint32_t)function_slot == 0x12345678U,
+          "input guard calls the supplied foreground-window function");
 }
 
 static int32_t helper_int32(size_t offset)
@@ -127,15 +174,21 @@ static void test_desktop_display_lifecycle_is_patched(void)
     CHECK(game_desktop_display_patch_transform(test_image, sizeof(test_image),
                                                TEST_IMAGE_BASE),
           "supported desktop display lifecycle transforms");
-    CHECK(test_image[image_offset(0x004A8EADU)] == 0xEB &&
-          test_image[image_offset(0x004A8EAEU)] == 0x19 &&
+    CHECK(test_image[image_offset(0x004A8EADU)] == 0x74 &&
+          test_image[image_offset(0x004A8EAEU)] == 0x19,
+          "desktop mode preserves the inactive-state transition");
+    CHECK(test_image[image_offset(0x004A8EC3U)] == 0x90 &&
+          test_image[image_offset(0x004A8EC4U)] == 0x90 &&
+          test_image[image_offset(0x004A8EC5U)] == 0x90 &&
+          test_image[image_offset(0x004A8EC6U)] == 0x90 &&
+          test_image[image_offset(0x004A8EC7U)] == 0x90 &&
           test_image[image_offset(0x004A8F67U)] == 0xE9 &&
           test_image[image_offset(0x004A8F68U)] == 0xB9 &&
           test_image[image_offset(0x004A8F69U)] == 0x00 &&
           test_image[image_offset(0x004A8F6AU)] == 0x00 &&
           test_image[image_offset(0x004A8F6BU)] == 0x00 &&
           test_image[image_offset(0x004A8F6CU)] == 0x90,
-          "desktop mode retains DirectDraw surfaces while inactive");
+          "desktop mode skips only DirectDraw teardown and recreation");
 }
 
 static void test_aspect_ratio_viewport_is_encoded(void)
@@ -231,6 +284,7 @@ static void test_invalid_image_is_rejected(void)
 int main(void)
 {
     test_desktop_display_lifecycle_is_patched();
+    test_inactive_input_filter_is_patched();
     test_supported_image_is_patched();
     test_aspect_ratio_viewport_is_encoded();
     test_mismatch_is_atomic();

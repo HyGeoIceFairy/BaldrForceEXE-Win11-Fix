@@ -60,7 +60,7 @@ Get-FileHash .\BaldrForce.exe -Algorithm SHA256
 ### 从 1.0.0 升级
 
 1. 关闭游戏。
-2. 用 1.1.0 的 `Start-BaldrForce.exe` 覆盖旧启动器。
+2. 用最新版 `Start-BaldrForce.exe` 覆盖旧启动器。
 3. `ddraw.dll` 仍为 dgVoodoo2 2.87.4，无需重复覆盖。
 4. 建议保留当前 `dgVoodoo.conf`；新版首次打开会读取其中可识别的旧显示设置。旧版全屏意图会迁移为推荐的无边框全屏，只有点击“保存并启动”后才会改动受管理项。
 5. 如果曾手动定制 `dgVoodoo.conf`，仍建议先在游戏目录之外留一份副本。启动器会保留不受其管理的章节、选项和注释，但不能代替用户自己的长期备份。

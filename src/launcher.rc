@@ -7,8 +7,8 @@
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "launcher.manifest"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,1,0,0
- PRODUCTVERSION 1,1,0,0
+ FILEVERSION 1,1,1,0
+ PRODUCTVERSION 1,1,1,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -25,12 +25,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "BALDR FORCE EXE Win11 Fix contributors"
             VALUE "FileDescription", "BALDR FORCE EXE 中文版兼容启动器"
-            VALUE "FileVersion", "1.1.0"
+            VALUE "FileVersion", "1.1.1"
             VALUE "InternalName", "Start-BaldrForce"
             VALUE "LegalCopyright", "Copyright (c) 2026 BALDR FORCE EXE Win11 Fix contributors"
             VALUE "OriginalFilename", "Start-BaldrForce.exe"
             VALUE "ProductName", "BALDR FORCE EXE Win11 Fix"
-            VALUE "ProductVersion", "1.1.0"
+            VALUE "ProductVersion", "1.1.1"
         END
     END
     BLOCK "VarFileInfo"
@@ -41,7 +41,7 @@ END
 
 IDD_LAUNCHER DIALOGEX 0, 0, 396, 310
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "BALDR FORCE EXE 中文版启动器 1.1.0"
+CAPTION "BALDR FORCE EXE 中文版启动器 1.1.1"
 FONT 9, "Microsoft YaHei UI", 400, 0, 0x86
 BEGIN
     LTEXT           "显示模式(&M)：", -1, 14, 15, 76, 12

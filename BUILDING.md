@@ -48,7 +48,7 @@
 打包脚本只使用本次构建得到的 `build/Start-BaldrForce.exe`，不会使用仓库根目录中的旧二进制。先完成构建和测试，再创建压缩包：
 
 ```powershell
-.\scripts\package.ps1 -Version 1.1.0
+.\scripts\package.ps1 -Version 1.1.1
 ```
 
 脚本采用显式文件白名单，不会扫描或打包仓库外的游戏目录。每次使用唯一暂存目录，已有同名发布包时会拒绝覆盖，并核对实际 ZIP 条目。输出位于 `dist/`，包括最终 ZIP 和对应的 `.sha256` 文件。

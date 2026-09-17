@@ -9,10 +9,18 @@
 
 #define GAME_WINDOWED_MOUSE_HELPER_SIZE 152U
 #define GAME_WINDOWED_MOUSE_LOGICAL_TO_SCREEN_OFFSET 85U
+#define GAME_INACTIVE_INPUT_HELPER_SIZE 60U
+#define GAME_INACTIVE_INPUT_FUNCTION_SLOT_OFFSET 56U
 
 BOOL game_desktop_display_patch_transform(BYTE *image, size_t image_size,
                                           uintptr_t image_base);
 BOOL game_desktop_display_patch_apply(HANDLE process);
+BOOL game_inactive_input_patch_transform(BYTE *image, size_t image_size,
+                                         uintptr_t image_base,
+                                         uintptr_t helper_address,
+                                         uintptr_t foreground_function,
+                                         BYTE *helper, size_t helper_size);
+BOOL game_inactive_input_patch_apply(HANDLE process);
 BOOL game_windowed_mouse_patch_transform(BYTE *image, size_t image_size,
                                          uintptr_t image_base,
                                          uintptr_t helper_address,

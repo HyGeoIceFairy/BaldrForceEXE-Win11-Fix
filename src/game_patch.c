@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -16,6 +17,11 @@
 #define VIEWPORT_LEFT_REVERSE_OFFSET 107U
 #define VIEWPORT_HEIGHT_REVERSE_OFFSET 116U
 #define VIEWPORT_TOP_REVERSE_OFFSET 129U
+#define INPUT_UPDATE_ADDRESS 0x004A85B0U
+#define ORIGINAL_MOUSE_UPDATE_ADDRESS 0x0040C750U
+#define INPUT_UPDATE_CONTINUATION_ADDRESS 0x004A85B5U
+#define INPUT_HELPER_CALL_RELATIVE_OFFSET 46U
+#define INPUT_HELPER_RETURN_RELATIVE_OFFSET 51U
 
 typedef struct GameCodeSignature {
     uintptr_t address;
@@ -53,15 +59,16 @@ static const GameCallPatch windowed_mouse_calls[] = {
 };
 
 /*
- * In the game's native fullscreen lifecycle, deactivation releases every
- * DirectDraw object and activation recreates an exclusive display mode. That
- * conflicts with dgVoodoo's desktop-window host and leaves the game with null
- * surfaces after minimize/restore. Windowed launcher mode keeps the existing
- * wrapper-owned surfaces alive and skips the incompatible recreation path.
+ * In the game's native fullscreen lifecycle, deactivation marks the game
+ * inactive and then releases every DirectDraw object; activation recreates an
+ * exclusive display mode. The inactive-state transition must remain intact so
+ * the game loop suspends input while its window is not active. Windowed
+ * launcher mode therefore skips only the incompatible DirectDraw teardown and
+ * recreation while retaining the surrounding focus state handling.
  */
 static const GameBytePatch desktop_display_lifecycle[] = {
-    { { 0x004A8EADU, { 0x74, 0x19 }, 2 },
-      { 0xEB, 0x19 } },
+    { { 0x004A8EC3U, { 0xE8, 0x38, 0xF0, 0xFF, 0xFF }, 5 },
+      { 0x90, 0x90, 0x90, 0x90, 0x90 } },
     { { 0x004A8F67U, { 0x0F, 0x84, 0xB8, 0x00, 0x00, 0x00 }, 6 },
       { 0xE9, 0xB9, 0x00, 0x00, 0x00, 0x90 } }
 };
@@ -99,6 +106,25 @@ static const BYTE mouse_scale_helper_template[GAME_WINDOWED_MOUSE_HELPER_SIZE] =
     0x4B, 0x00, 0x5E, 0x5D, 0xC2, 0x08, 0x00, 0x90
 };
 
+/*
+ * input_update_guard():
+ *   Compare GetForegroundWindow() with the game's HWND. If another window is
+ *   foreground, clear all keyboard/mouse state and return without polling.
+ *   Otherwise execute the displaced mouse-update call and rejoin the original
+ *   input-update function. The function pointer is stored after the code so
+ *   this helper does not depend on a particular USER32 load address.
+ */
+static const BYTE inactive_input_helper_template[GAME_INACTIVE_INPUT_HELPER_SIZE] = {
+    0xFF, 0x15, 0x11, 0x11, 0x11, 0x11, 0x3B, 0x05,
+    0x48, 0x39, 0x50, 0x00, 0x74, 0x20, 0x31, 0xC0,
+    0xA3, 0x50, 0x3A, 0x50, 0x00, 0xA3, 0x54, 0x3A,
+    0x50, 0x00, 0xA3, 0x64, 0x3A, 0x50, 0x00, 0x57,
+    0xB9, 0x40, 0x00, 0x00, 0x00, 0xBF, 0x6C, 0x3A,
+    0x50, 0x00, 0xF3, 0xAB, 0x5F, 0xC3, 0xE8, 0x22,
+    0x22, 0x22, 0x22, 0xE9, 0x33, 0x33, 0x33, 0x33,
+    0x44, 0x44, 0x44, 0x44
+};
+
 static void write_int32(BYTE *buffer, size_t offset, LONG value)
 {
     int32_t encoded = (int32_t)value;
@@ -119,6 +145,42 @@ static void build_mouse_scale_helper(BYTE *helper,
     write_int32(helper, VIEWPORT_LEFT_REVERSE_OFFSET, viewport_left);
     write_int32(helper, VIEWPORT_HEIGHT_REVERSE_OFFSET, viewport_height);
     write_int32(helper, VIEWPORT_TOP_REVERSE_OFFSET, viewport_top);
+}
+
+static BOOL build_inactive_input_helper(BYTE *helper,
+                                        uintptr_t helper_address,
+                                        uintptr_t foreground_function)
+{
+    uint32_t function_slot_address;
+    uint32_t function_address;
+    uint32_t relative_call;
+    uint32_t relative_return;
+
+    if (helper_address > UINT32_MAX - GAME_INACTIVE_INPUT_HELPER_SIZE ||
+        foreground_function > UINT32_MAX) {
+        SetLastError(ERROR_INVALID_ADDRESS);
+        return FALSE;
+    }
+    function_slot_address =
+        (uint32_t)helper_address + GAME_INACTIVE_INPUT_FUNCTION_SLOT_OFFSET;
+    function_address = (uint32_t)foreground_function;
+    relative_call = (uint32_t)ORIGINAL_MOUSE_UPDATE_ADDRESS -
+                    ((uint32_t)helper_address +
+                     INPUT_HELPER_CALL_RELATIVE_OFFSET + 5U);
+    relative_return = (uint32_t)INPUT_UPDATE_CONTINUATION_ADDRESS -
+                      ((uint32_t)helper_address +
+                       INPUT_HELPER_RETURN_RELATIVE_OFFSET + 5U);
+
+    memcpy(helper, inactive_input_helper_template,
+           sizeof(inactive_input_helper_template));
+    memcpy(helper + 2U, &function_slot_address, sizeof(function_slot_address));
+    memcpy(helper + INPUT_HELPER_CALL_RELATIVE_OFFSET + 1U,
+           &relative_call, sizeof(relative_call));
+    memcpy(helper + INPUT_HELPER_RETURN_RELATIVE_OFFSET + 1U,
+           &relative_return, sizeof(relative_return));
+    memcpy(helper + GAME_INACTIVE_INPUT_FUNCTION_SLOT_OFFSET,
+           &function_address, sizeof(function_address));
+    return TRUE;
 }
 
 static BOOL calculate_viewport(unsigned int client_width,
@@ -298,6 +360,39 @@ BOOL game_windowed_mouse_patch_transform(BYTE *image, size_t image_size,
     return TRUE;
 }
 
+BOOL game_inactive_input_patch_transform(BYTE *image, size_t image_size,
+                                         uintptr_t image_base,
+                                         uintptr_t helper_address,
+                                         uintptr_t foreground_function,
+                                         BYTE *helper, size_t helper_size)
+{
+    static const GameCodeSignature input_update = {
+        INPUT_UPDATE_ADDRESS, { 0xE8, 0x9B, 0x41, 0xF6, 0xFF }, 5
+    };
+    size_t input_offset;
+    BYTE jump[6];
+
+    if (image == NULL || helper == NULL) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    if (helper_size < sizeof(inactive_input_helper_template)) {
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return FALSE;
+    }
+    if (!validate_image_signature(image, image_size, image_base,
+                                  &input_update, &input_offset) ||
+        !make_relative_call(INPUT_UPDATE_ADDRESS, helper_address, jump) ||
+        !build_inactive_input_helper(helper, helper_address,
+                                     foreground_function)) {
+        return FALSE;
+    }
+    jump[0] = 0xE9;
+    memcpy(image + input_offset, jump, input_update.size);
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
+
 static BOOL read_exact(HANDLE process, uintptr_t address,
                        void *buffer, SIZE_T size)
 {
@@ -312,6 +407,203 @@ static BOOL write_exact(HANDLE process, uintptr_t address,
     SIZE_T written = 0;
     return WriteProcessMemory(process, (LPVOID)address, buffer, size,
                               &written) && written == size;
+}
+
+static uintptr_t find_remote_module_base(DWORD process_id,
+                                         const WCHAR *module_name)
+{
+    MODULEENTRY32W entry;
+    HANDLE snapshot;
+    uintptr_t result = 0;
+
+    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                                       process_id);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+    ZeroMemory(&entry, sizeof(entry));
+    entry.dwSize = sizeof(entry);
+    if (Module32FirstW(snapshot, &entry)) {
+        do {
+            if (_wcsicmp(entry.szModule, module_name) == 0) {
+                result = (uintptr_t)entry.modBaseAddr;
+                break;
+            }
+        } while (Module32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    return result;
+}
+
+static uintptr_t resolve_remote_export(HANDLE process, uintptr_t module_base,
+                                       const char *export_name)
+{
+    IMAGE_DOS_HEADER dos_header;
+    IMAGE_NT_HEADERS32 nt_headers;
+    IMAGE_EXPORT_DIRECTORY exports;
+    DWORD *name_rvas = NULL;
+    WORD *ordinals = NULL;
+    DWORD *function_rvas = NULL;
+    uintptr_t result = 0;
+    size_t names_size;
+    size_t ordinals_size;
+    size_t functions_size;
+    DWORD index;
+
+    if (!read_exact(process, module_base, &dos_header, sizeof(dos_header)) ||
+        dos_header.e_magic != IMAGE_DOS_SIGNATURE ||
+        !read_exact(process, module_base + (uintptr_t)dos_header.e_lfanew,
+                    &nt_headers, sizeof(nt_headers)) ||
+        nt_headers.Signature != IMAGE_NT_SIGNATURE ||
+        nt_headers.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+        SetLastError(ERROR_BAD_EXE_FORMAT);
+        return 0;
+    }
+    {
+        const IMAGE_DATA_DIRECTORY *directory =
+            &nt_headers.OptionalHeader
+                 .DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+        if (directory->VirtualAddress == 0 ||
+            !read_exact(process, module_base + directory->VirtualAddress,
+                        &exports, sizeof(exports))) {
+            SetLastError(ERROR_PROC_NOT_FOUND);
+            return 0;
+        }
+    }
+    if (exports.NumberOfNames == 0 || exports.NumberOfFunctions == 0) {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return 0;
+    }
+    names_size = (size_t)exports.NumberOfNames * sizeof(DWORD);
+    ordinals_size = (size_t)exports.NumberOfNames * sizeof(WORD);
+    functions_size = (size_t)exports.NumberOfFunctions * sizeof(DWORD);
+    name_rvas = HeapAlloc(GetProcessHeap(), 0, names_size);
+    ordinals = HeapAlloc(GetProcessHeap(), 0, ordinals_size);
+    function_rvas = HeapAlloc(GetProcessHeap(), 0, functions_size);
+    if (name_rvas == NULL || ordinals == NULL || function_rvas == NULL) {
+        SetLastError(ERROR_OUTOFMEMORY);
+        goto cleanup;
+    }
+    if (!read_exact(process, module_base + exports.AddressOfNames,
+                    name_rvas, names_size) ||
+        !read_exact(process, module_base + exports.AddressOfNameOrdinals,
+                    ordinals, ordinals_size) ||
+        !read_exact(process, module_base + exports.AddressOfFunctions,
+                    function_rvas, functions_size)) {
+        goto cleanup;
+    }
+    for (index = 0; index < exports.NumberOfNames; ++index) {
+        char name[128];
+        SIZE_T received = 0;
+
+        ZeroMemory(name, sizeof(name));
+        if (!ReadProcessMemory(process,
+                               (LPCVOID)(module_base + name_rvas[index]), name,
+                               sizeof(name) - 1U, &received) ||
+            received == 0) {
+            continue;
+        }
+        name[sizeof(name) - 1U] = '\0';
+        if (strcmp(name, export_name) == 0 &&
+            ordinals[index] < exports.NumberOfFunctions) {
+            result = module_base + function_rvas[ordinals[index]];
+            break;
+        }
+    }
+    if (result == 0) {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+    }
+
+cleanup:
+    if (function_rvas != NULL) {
+        HeapFree(GetProcessHeap(), 0, function_rvas);
+    }
+    if (ordinals != NULL) {
+        HeapFree(GetProcessHeap(), 0, ordinals);
+    }
+    if (name_rvas != NULL) {
+        HeapFree(GetProcessHeap(), 0, name_rvas);
+    }
+    return result;
+}
+
+BOOL game_inactive_input_patch_apply(HANDLE process)
+{
+    static const BYTE expected[] = { 0xE8, 0x9B, 0x41, 0xF6, 0xFF };
+    BYTE original[sizeof(expected)];
+    BYTE replacement[6];
+    BYTE helper[GAME_INACTIVE_INPUT_HELPER_SIZE];
+    LPVOID remote_helper = NULL;
+    uintptr_t user32_base;
+    uintptr_t foreground_function;
+    DWORD old_protection = 0;
+    DWORD error_code;
+    BOOL entry_attempted = FALSE;
+
+    if (process == NULL || process == INVALID_HANDLE_VALUE) {
+        SetLastError(ERROR_INVALID_HANDLE);
+        return FALSE;
+    }
+    if (!read_exact(process, INPUT_UPDATE_ADDRESS, original,
+                    sizeof(original)) ||
+        memcmp(original, expected, sizeof(expected)) != 0) {
+        SetLastError(ERROR_INVALID_DATA);
+        return FALSE;
+    }
+    user32_base = find_remote_module_base(GetProcessId(process), L"USER32.DLL");
+    if (user32_base == 0) {
+        if (GetLastError() == ERROR_SUCCESS) {
+            SetLastError(ERROR_MOD_NOT_FOUND);
+        }
+        return FALSE;
+    }
+    foreground_function =
+        resolve_remote_export(process, user32_base, "GetForegroundWindow");
+    if (foreground_function == 0) {
+        return FALSE;
+    }
+    remote_helper = VirtualAllocEx(process, NULL, sizeof(helper),
+                                   MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (remote_helper == NULL) {
+        return FALSE;
+    }
+    if (!build_inactive_input_helper(helper, (uintptr_t)remote_helper,
+                                     foreground_function) ||
+        !make_relative_call(INPUT_UPDATE_ADDRESS, (uintptr_t)remote_helper,
+                            replacement)) {
+        error_code = GetLastError();
+        goto rollback;
+    }
+    replacement[0] = 0xE9;
+    if (!write_exact(process, (uintptr_t)remote_helper, helper,
+                     sizeof(helper)) ||
+        !VirtualProtectEx(process, remote_helper, sizeof(helper),
+                          PAGE_EXECUTE_READ, &old_protection) ||
+        !FlushInstructionCache(process, remote_helper, sizeof(helper))) {
+        error_code = GetLastError();
+        goto rollback;
+    }
+    entry_attempted = TRUE;
+    if (!write_exact(process, INPUT_UPDATE_ADDRESS, replacement,
+                     sizeof(original)) ||
+        !FlushInstructionCache(process, (LPCVOID)INPUT_UPDATE_ADDRESS,
+                               sizeof(original))) {
+        error_code = GetLastError();
+        goto rollback;
+    }
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+
+rollback:
+    if (!entry_attempted ||
+        (write_exact(process, INPUT_UPDATE_ADDRESS, original,
+                     sizeof(original)) &&
+         FlushInstructionCache(process, (LPCVOID)INPUT_UPDATE_ADDRESS,
+                               sizeof(original)))) {
+        VirtualFreeEx(process, remote_helper, 0, MEM_RELEASE);
+    }
+    SetLastError(error_code);
+    return FALSE;
 }
 
 BOOL game_desktop_display_patch_apply(HANDLE process)

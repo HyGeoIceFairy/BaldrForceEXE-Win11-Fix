@@ -23,12 +23,12 @@ git push -u origin main
    .\scripts\build.ps1
    .\scripts\test.ps1
    .\scripts\test-package.ps1
-   .\scripts\package.ps1 -Version 1.1.0
+   .\scripts\package.ps1 -Version 1.1.1
    ```
 
 2. 阅读 `docs/VALIDATION-<版本>.md` 的发布结论；只要其中仍有未完成的实机矩阵或交互验收，GitHub Release 必须勾选 **Set as a pre-release**，并在发布说明中披露缺口。全部门禁完成后才可发布为稳定版。
 3. 在 GitHub 仓库选择 **Releases → Draft a new release**。
-4. 新建对应语义版本标签（例如 `v1.1.0`），标题填写同版本的 `BALDR FORCE EXE Win11 Fix`。
+4. 新建对应语义版本标签（例如 `v1.1.1`），标题填写同版本的 `BALDR FORCE EXE Win11 Fix`。
 5. 将 `RELEASE_NOTES.md` 的内容粘贴为发布说明。
 6. 上传：
    - 对应版本的 `dist/BaldrForceEXE-Win11-Fix-v*.zip`
